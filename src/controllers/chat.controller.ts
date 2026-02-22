@@ -1,5 +1,4 @@
 import type { Request, Response, NextFunction } from 'express';
-import { AIMessage, ToolMessage } from '@langchain/core/messages';
 import type { AuthenticatedRequest, StreamMessage } from '../types/index';
 import type { ChatQueryInput } from '../lib/schemas';
 import { getAgent } from '../agents/index';
@@ -27,7 +26,7 @@ export async function streamChat(
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no', // Disable Nginx response buffering
+    'X-Accel-Buffering': 'no',
     'Access-Control-Allow-Origin': env.FRONTEND_URL,
   });
 
@@ -47,47 +46,54 @@ export async function streamChat(
     const responseStream = await agent.stream(
       { messages: [{ role: 'user', content: query }] },
       {
-        streamMode: ['messages', 'custom'],
+        streamMode: 'messages',
         configurable: { thread_id: scopedThreadId },
       },
     );
 
-    for await (const [eventType, chunk] of responseStream) {
-      if (!isConnected) break;
+for await (const chunk of responseStream) {
+  if (!isConnected) break;
 
-      let message: StreamMessage | null = null;
+  const arr = chunk as unknown as unknown[];
+  const msg = arr[0] as {
+    content?: unknown;
+    name?: string;
+    tool_calls?: unknown[];
+    tool_call_chunks?: unknown[];
+    constructor?: { name?: string };
+  };
 
-      if (eventType === 'custom') {
-        // Tool-call announcement emitted by shouldContinue()
-        message = chunk as StreamMessage;
-      } else if (eventType === 'messages') {
-        const msgChunk = Array.isArray(chunk) ? chunk[0] : chunk;
-        if (!msgChunk || msgChunk.content === '') continue;
+  if (!msg || msg.content === '' || msg.content === undefined) continue;
 
-        if (
-          msgChunk instanceof AIMessage &&
-          typeof msgChunk.content === 'string'
-        ) {
-          message = { type: 'ai', payload: { text: msgChunk.content } };
-        } else if (msgChunk instanceof ToolMessage) {
-          let result: Record<string, unknown>;
-          try {
-            result = JSON.parse(msgChunk.content as string) as Record<
-              string,
-              unknown
-            >;
-          } catch {
-            result = { raw: msgChunk.content };
-          }
-          message = {
-            type: 'tool',
-            payload: { name: msgChunk.name ?? 'unknown', result },
-          };
-        }
-      }
+  let message: StreamMessage | null = null;
 
-      if (message) writeEvent(eventType, message);
+  // Detect ToolMessage by absence of tool_calls property
+  const isToolMessage =
+    msg.tool_calls === undefined && msg.tool_call_chunks === undefined;
+  const isAIChunk =
+    msg.tool_calls !== undefined || msg.tool_call_chunks !== undefined;
+
+  if (isToolMessage && typeof msg.content === 'string') {
+    let result: Record<string, unknown>;
+    try {
+      result = JSON.parse(msg.content) as Record<string, unknown>;
+    } catch {
+      result = { raw: msg.content };
     }
+    message = {
+      type: 'tool',
+      payload: { name: msg.name ?? 'unknown', result },
+    };
+  } else if (
+    isAIChunk &&
+    typeof msg.content === 'string' &&
+    msg.content !== ''
+  ) {
+    message = { type: 'ai', payload: { text: msg.content } };
+  }
+
+  if (message) writeEvent('messages', message);
+}
 
     // Persist user message after successful stream (fire-and-forget)
     persistUserMessage(userId, scopedThreadId, query).catch(console.error);

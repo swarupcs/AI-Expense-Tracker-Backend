@@ -1,3 +1,5 @@
+// src/middleware/validate.ts
+
 import type { Request, Response, NextFunction } from 'express';
 import type { ZodSchema, ZodError } from 'zod';
 
@@ -14,7 +16,14 @@ export function validate(schema: ZodSchema, part: RequestPart = 'body') {
       });
       return;
     }
-    (req as unknown as Record<string, unknown>)[part] = result.data; // ← double cast
+
+    if (part === 'query') {
+      // Express 5 makes req.query a read-only getter — merge onto the object instead
+      Object.assign(req.query, result.data);
+    } else {
+      (req as unknown as Record<string, unknown>)[part] = result.data;
+    }
+
     next();
   };
 }

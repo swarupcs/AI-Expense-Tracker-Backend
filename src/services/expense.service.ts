@@ -22,7 +22,11 @@ export async function listExpensesService(
   userId: number,
   filters: ExpenseFiltersInput,
 ): Promise<ExpenseListResult> {
-  const { from, to, category, search, page, limit } = filters;
+  const { from, to, category, search } = filters;
+
+  // Coerce to numbers with safe defaults
+  const page = Number(filters.page) || 1;
+  const limit = Number(filters.limit) || 20;
   const skip = (page - 1) * limit;
 
   const where: Prisma.ExpenseWhereInput = { userId };
