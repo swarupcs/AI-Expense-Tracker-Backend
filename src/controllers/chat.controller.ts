@@ -27,7 +27,6 @@ export async function streamChat(
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
-    'Access-Control-Allow-Origin': env.FRONTEND_URL,
   });
 
   const writeEvent = (eventName: string, data: StreamMessage): void => {

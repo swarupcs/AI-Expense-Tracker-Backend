@@ -24,9 +24,17 @@ app.use(
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
+const allowedOrigins = env.ALLOWED_ORIGINS.split(',').map((o) => o.trim());
+
 app.use(
   cors({
-    origin: env.FRONTEND_URL,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS blocked: ${origin}`));
+      }
+    },
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,

@@ -25,7 +25,7 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'production', 'test'])
     .default('development'),
-  FRONTEND_URL: z.string().url().default('http://localhost:5173'),
+  ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
 
   // Rate limiting
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
