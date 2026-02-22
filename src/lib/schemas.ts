@@ -1,0 +1,104 @@
+import { z } from 'zod';
+import { Category } from '../generated/prisma'; 
+
+// ─── Auth Schemas ─────────────────────────────────────────────────────────────
+
+export const signUpSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name too long').trim(),
+  email: z.string().email('Invalid email address').toLowerCase().trim(),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(128, 'Password too long')
+    .regex(/[A-Z]/, 'Must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Must contain at least one number'),
+});
+
+export const signInSchema = z.object({
+  email: z.string().email('Invalid email address').toLowerCase().trim(),
+  password: z.string().min(1, 'Password is required'),
+});
+
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(1, 'Refresh token is required'),
+});
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z
+      .string()
+      .min(8, 'Password must be at least 8 characters')
+      .max(128)
+      .regex(/[A-Z]/, 'Must contain at least one uppercase letter')
+      .regex(/[a-z]/, 'Must contain at least one lowercase letter')
+      .regex(/[0-9]/, 'Must contain at least one number'),
+    confirmPassword: z.string().min(1, 'Please confirm your password'),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+
+// ─── Expense Schemas ──────────────────────────────────────────────────────────
+
+const categoryValues = Object.values(Category) as [Category, ...Category[]];
+
+export const createExpenseSchema = z.object({
+  title: z
+    .string()
+    .min(1, 'Title is required')
+    .max(200, 'Title too long')
+    .trim(),
+  amount: z
+    .number({ error: 'Amount must be a number' })
+    .positive('Amount must be positive')
+    .max(10_000_000, 'Amount too large'),
+  category: z.enum(categoryValues).optional(),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD')
+    .optional(),
+  notes: z.string().max(1000, 'Notes too long').optional(),
+});
+
+export const updateExpenseSchema = z.object({
+  title: z.string().min(1).max(200).trim().optional(),
+  amount: z.number().positive().max(10_000_000).optional(),
+  category: z.enum(categoryValues).optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').optional(),
+  notes: z.string().max(1000).optional(),
+});
+
+export const expenseFiltersSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  category: z.enum(categoryValues).optional(),
+  search: z.string().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const bulkDeleteSchema = z.object({
+  ids: z.array(z.number().int().positive()).min(1, 'At least one ID required'),
+});
+
+// ─── Chat Schemas ─────────────────────────────────────────────────────────────
+
+export const chatQuerySchema = z.object({
+  query: z.string().min(1, 'Query is required').max(2000, 'Query too long').trim(),
+  threadId: z.string().max(100).optional(),
+});
+
+// ─── Inferred types ───────────────────────────────────────────────────────────
+
+export type SignUpInput         = z.infer<typeof signUpSchema>;
+export type SignInInput         = z.infer<typeof signInSchema>;
+export type RefreshTokenInput   = z.infer<typeof refreshTokenSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type CreateExpenseInput  = z.infer<typeof createExpenseSchema>;
+export type UpdateExpenseInput  = z.infer<typeof updateExpenseSchema>;
+export type ExpenseFiltersInput = z.infer<typeof expenseFiltersSchema>;
+export type BulkDeleteInput     = z.infer<typeof bulkDeleteSchema>;
+export type ChatQueryInput      = z.infer<typeof chatQuerySchema>;
