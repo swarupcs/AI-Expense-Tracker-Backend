@@ -91,6 +91,16 @@ export const chatQuerySchema = z.object({
   threadId: z.string().max(100).optional(),
 });
 
+// Google OAuth
+export const googleAuthSchema = z.object({
+  code: z.string().min(1, 'Authorization code is required'),
+});
+
+export const googleCallbackSchema = z.object({
+  code: z.string().min(1, 'Authorization code is required'),
+  state: z.string().optional(),
+});
+
 // ─── Inferred types ───────────────────────────────────────────────────────────
 
 export type SignUpInput         = z.infer<typeof signUpSchema>;
@@ -102,3 +112,6 @@ export type UpdateExpenseInput  = z.infer<typeof updateExpenseSchema>;
 export type ExpenseFiltersInput = z.infer<typeof expenseFiltersSchema>;
 export type BulkDeleteInput     = z.infer<typeof bulkDeleteSchema>;
 export type ChatQueryInput      = z.infer<typeof chatQuerySchema>;
+
+export type GoogleAuthInput = z.infer<typeof googleAuthSchema>;
+export type GoogleCallbackInput = z.infer<typeof googleCallbackSchema>;

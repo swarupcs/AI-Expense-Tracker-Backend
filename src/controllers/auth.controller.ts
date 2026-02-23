@@ -1,3 +1,4 @@
+import { env } from '../config/env';
 import type { Request, Response, NextFunction } from 'express';
 import type { AuthenticatedRequest } from '../types/index';
 import type {
@@ -5,6 +6,7 @@ import type {
   SignInInput,
   RefreshTokenInput,
   ChangePasswordInput,
+  GoogleAuthInput,
 } from '../lib/schemas';
 import {
   signUpService,
@@ -13,7 +15,69 @@ import {
   logoutService,
   getMeService,
   changePasswordService,
+  googleAuthService,
+  googleTokenAuthService,
 } from '../services/auth.service';
+
+import { getGoogleAuthUrl } from '../lib/google-oauth';
+
+// ─── GET /api/auth/google ─────────────────────────────────────────────────────
+
+export async function getGoogleAuthUrlController(
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const url = getGoogleAuthUrl();
+    res.json({ success: true, data: { url } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── POST /api/auth/google/callback ──────────────────────────────────────────
+
+export async function googleAuthCallback(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const result = await googleAuthService(req.body as GoogleAuthInput);
+    res.json({
+      success: true,
+      message: 'Signed in with Google successfully',
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── POST /api/auth/google/token ──────────────────────────────────────────────
+
+export async function googleTokenAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { idToken } = req.body as { idToken: string };
+    if (!idToken) {
+      res.status(400).json({ success: false, error: 'ID token is required' });
+      return;
+    }
+    const result = await googleTokenAuthService(idToken);
+    res.json({
+      success: true,
+      message: 'Signed in with Google successfully',
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
 
 // ─── POST /api/auth/signup ────────────────────────────────────────────────────
 
@@ -117,5 +181,39 @@ export async function changePassword(
     });
   } catch (err) {
     next(err);
+  }
+}
+
+export async function googleAuthCallbackGet(
+  req: Request,
+  res: Response,
+  _next: NextFunction,
+): Promise<void> {
+  try {
+    const { code, error } = req.query;
+
+    if (error) {
+      console.error('Google OAuth error:', error);
+      return res.redirect(`${env.FRONTEND_URL}/login?error=google_auth_failed`);
+    }
+
+    if (!code || typeof code !== 'string') {
+      return res.redirect(`${env.FRONTEND_URL}/login?error=google_auth_failed`);
+    }
+
+    const result = await googleAuthService({ code });
+
+    const params = new URLSearchParams({
+      accessToken: result.tokens.accessToken,
+      refreshToken: result.tokens.refreshToken,
+      user: JSON.stringify(result.user),
+    });
+
+    res.redirect(
+      `${env.FRONTEND_URL}/auth/google/callback?${params.toString()}`,
+    );
+  } catch (err) {
+    console.error('Google auth callback error:', err);
+    res.redirect(`${env.FRONTEND_URL}/login?error=google_auth_failed`);
   }
 }

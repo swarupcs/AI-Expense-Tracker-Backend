@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/prisma"
@@ -15,40 +9,22 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ─── Enums ────────────────────────────────────────────────────────────────────
-
-enum Role {
-  USER
-  ADMIN
-}
-
-enum Category {
-  DINING
-  SHOPPING
-  TRANSPORT
-  ENTERTAINMENT
-  UTILITIES
-  HEALTH
-  EDUCATION
-  OTHER
-}
-
-// ─── Models ───────────────────────────────────────────────────────────────────
-
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         Role     @default(USER)
-  isActive     Boolean  @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
+  id            Int            @id @default(autoincrement())
+  email         String         @unique
+  name          String
+  passwordHash  String?
+  role          Role           @default(USER)
+  isActive      Boolean        @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  authProvider  String         @default("local")
+  googleId      String?        @unique
+  googlePicture String?
+  chatMessages  ChatMessage[]
   expenses      Expense[]
   refreshTokens RefreshToken[]
-  chatMessages  ChatMessage[]
 
   @@map("users")
 }
@@ -60,8 +36,7 @@ model RefreshToken {
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
@@ -78,8 +53,7 @@ model Expense {
   userId    Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, date])
@@ -94,11 +68,26 @@ model ChatMessage {
   role      String
   content   String
   createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([threadId])
   @@index([userId, threadId])
   @@map("chat_messages")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Category {
+  DINING
+  SHOPPING
+  TRANSPORT
+  ENTERTAINMENT
+  UTILITIES
+  HEALTH
+  EDUCATION
+  OTHER
 }

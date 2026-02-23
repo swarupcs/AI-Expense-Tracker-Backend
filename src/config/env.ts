@@ -26,6 +26,14 @@ const envSchema = z.object({
     .enum(['development', 'production', 'test'])
     .default('development'),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
+  FRONTEND_URL: z.string().url().default('http://localhost:5173'),
+
+  // Google OAuth
+  GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),
+  GOOGLE_CLIENT_SECRET: z.string().min(1, 'GOOGLE_CLIENT_SECRET is required'),
+  GOOGLE_REDIRECT_URI: z
+    .string()
+    .url('GOOGLE_REDIRECT_URI must be a valid URL'),
 
   // Rate limiting
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),

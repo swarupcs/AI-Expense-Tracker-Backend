@@ -7,6 +7,7 @@ import {
   signInSchema,
   refreshTokenSchema,
   changePasswordSchema,
+  googleAuthSchema,
 } from '../lib/schemas';
 import {
   signUp,
@@ -15,6 +16,10 @@ import {
   logout,
   getMe,
   changePassword,
+  getGoogleAuthUrlController,
+  googleAuthCallbackGet,
+  googleAuthCallback,
+  googleTokenAuth,
 } from '../controllers/auth.controller';
 
 export const authRouter: Router = Router();
@@ -24,6 +29,17 @@ authRouter.post('/signup', authLimiter, validate(signUpSchema), signUp);
 authRouter.post('/signin', authLimiter, validate(signInSchema), signIn);
 authRouter.post('/refresh', validate(refreshTokenSchema), refreshToken);
 authRouter.post('/logout', validate(refreshTokenSchema), logout);
+
+// Google OAuth routes
+authRouter.get('/google', getGoogleAuthUrlController);
+authRouter.get('/google/callback', authLimiter, googleAuthCallbackGet);  
+authRouter.post(
+  '/google/callback',
+  authLimiter,
+  validate(googleAuthSchema),
+  googleAuthCallback,
+);
+authRouter.post('/google/token', authLimiter, googleTokenAuth);
 
 // Protected — requires valid Bearer JWT
 authRouter.get('/me', authenticate, getMe);
