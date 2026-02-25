@@ -25,6 +25,8 @@
   "packageManager": "pnpm@10.28.1",
   "dependencies": {
     "@langchain/core": "^1.1.27",
+    "@langchain/google-genai": "^2.1.20",
+    "@langchain/groq": "^1.1.2",
     "@langchain/langgraph": "^1.1.5",
     "@langchain/openai": "^1.2.9",
     "bcryptjs": "^3.0.3",

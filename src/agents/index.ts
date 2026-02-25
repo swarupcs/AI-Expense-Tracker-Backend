@@ -1,4 +1,3 @@
-import { ChatOpenAI } from '@langchain/openai';
 import type { LangGraphRunnableConfig } from '@langchain/langgraph';
 import {
   MemorySaver,
@@ -8,18 +7,11 @@ import {
 import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { AIMessage, ToolMessage } from '@langchain/core/messages';
 import { initTools } from '../tools/index';
-import { env } from '../config/env';
+import { getLlm } from './llm.factory';
+import type { ToolCapableLlm } from './llm.factory';
 import type { StreamMessage } from '../types/index';
 
-// ─── LLM ─────────────────────────────────────────────────────────────────────
-
-const llm = new ChatOpenAI({
-  model: env.OPENAI_MODEL,
-  apiKey: env.OPENAI_API_KEY,
-  temperature: 0.2,
-});
-
-// Shared MemorySaver — thread history is keyed by thread_id inside each stream call.
+// ─── Shared checkpointer ──────────────────────────────────────────────────────
 // For production at scale, replace with a Redis-backed or DB-backed checkpointer.
 const checkpointer = new MemorySaver();
 
@@ -71,8 +63,8 @@ const OFF_TOPIC_REPLY =
 
 /**
  * Lightweight keyword-based pre-flight check that short-circuits the LLM call
- * entirely for messages that are obviously off-topic.
- * This saves tokens and latency before even hitting the model.
+ * for messages that are obviously off-topic.
+ * Saves tokens + latency before even hitting the model.
  *
  * Returns true  → message is RELEVANT (let it through to the LLM).
  * Returns false → message is OFF-TOPIC (reject immediately).
@@ -80,14 +72,11 @@ const OFF_TOPIC_REPLY =
 function isRelevantMessage(text: string): boolean {
   const lower = text.toLowerCase().trim();
 
-  // ── Patterns that are clearly in-scope — always allow ──────────────────
   const ALLOW_PATTERNS: RegExp[] = [
-    // Greetings / meta questions about the app
     /^h(i|ello|ey)\b/,
     /^good\s+(morning|afternoon|evening)/,
     /\bwhat can you (do|help)/,
     /\bhow (do|can) (i|you)/,
-    // Core expense vocabulary
     /\bexpense/,
     /\bspend/,
     /\bspent/,
@@ -117,7 +106,6 @@ function isRelevantMessage(text: string): boolean {
     /\binr\b/,
     /₹/,
     /\brupee/,
-    // Expense categories
     /\bdining/,
     /\bshopping/,
     /\btransport/,
@@ -130,38 +118,24 @@ function isRelevantMessage(text: string): boolean {
 
   if (ALLOW_PATTERNS.some((re) => re.test(lower))) return true;
 
-  // ── Patterns that are clearly off-topic — reject immediately ───────────
   const BLOCK_PATTERNS: RegExp[] = [
-    // Creative writing / content generation
     /\bwrite (a |an )?(poem|story|essay|code|function|script|email(?! expense)|letter|song|blog)/,
-    // Cooking
     /\b(recipe|how (to )?cook|bake|ingredient|meal (plan|prep))\b/,
-    // Weather
     /\b(weather|forecast|temperature|climate)\b/,
-    // Coding / tech
     /\b(debug|fix (my )?code|coding|programming|javascript|python|typescript|react|nodejs|sql(?! expense)|algorithm|data structure)\b/,
-    // General knowledge / trivia
     /\b(capital of|president of|who (invented|discovered|wrote)|history of|tell me about|explain (quantum|relativity|photosynthesis))\b/,
-    // Entertainment
     /\b(movie|film|series|tv show|song|music|lyrics|actor|actress|celebrity|anime)\b/,
-    // Translation
     /\b(translate (this|to|into)|in (french|spanish|german|japanese|arabic|chinese|korean))\b/,
-    // Jokes / games
     /\b(joke|riddle|fun fact|trivia|play (a\s+)?(game|quiz))\b/,
-    // Sports
     /\b(sport|cricket|football|basketball|tennis|ipl|fifa)\b(?!.*expense)(?!.*spend)/,
-    // Crypto / stocks (only if not in expense context)
     /\b(how (does )?bitcoin work|what is ethereum|nft|blockchain)\b(?!.*expense)/,
-    // Health / medical (not expense-related)
     /\b(diagnose|symptom|medicine|dosage|workout routine|exercise plan)\b(?!.*expense)/,
-    // Travel (not expense-related)
     /\b(best (place|destination) to (visit|travel)|tourist spot|visa requirements)\b(?!.*expense)/,
   ];
 
   if (BLOCK_PATTERNS.some((re) => re.test(lower))) return false;
 
-  // Default: allow — the LLM's system prompt is the final line of defence
-  return true;
+  return true; // Default: allow — system prompt is the final guard
 }
 
 // ─── Agent Factory ────────────────────────────────────────────────────────────
@@ -169,20 +143,20 @@ function isRelevantMessage(text: string): boolean {
 /**
  * Builds and compiles a LangGraph StateGraph for a specific user.
  * Tools are instantiated with userId so they always query the right user's data.
+ * The LLM instance is resolved once via the factory (singleton across agents).
  */
 export function createAgent(userId: number) {
   const tools = initTools(userId);
   const toolNode = new ToolNode(tools);
+  const llm: ToolCapableLlm = getLlm(); // ← provider-agnostic singleton
 
-  // ── Nodes ────────────────────────────────────────────────────────────────
+  // ── Nodes ─────────────────────────────────────────────────────────────────
 
   async function callModel(
     state: typeof MessagesAnnotation.State,
     _config: LangGraphRunnableConfig,
   ) {
-    // ── Pre-flight topic guard ─────────────────────────────────────────────
-    // Find the most recent human message and check if it is in-scope.
-    // If not, short-circuit with a static reply — no LLM call, no token cost.
+    // Pre-flight topic guard — short-circuit before hitting the provider
     const lastUserMessage = [...state.messages]
       .reverse()
       .find((m) => m.getType() === 'human');
@@ -194,12 +168,9 @@ export function createAgent(userId: number) {
           : JSON.stringify(lastUserMessage.content);
 
       if (!isRelevantMessage(text)) {
-        return {
-          messages: [new AIMessage({ content: OFF_TOPIC_REPLY })],
-        };
+        return { messages: [new AIMessage({ content: OFF_TOPIC_REPLY })] };
       }
     }
-    // ──────────────────────────────────────────────────────────────────────
 
     const llmWithTools = llm.bindTools(tools);
 
@@ -221,7 +192,6 @@ export function createAgent(userId: number) {
 
     if (lastMessage.tool_calls?.length) {
       const firstCall = lastMessage.tool_calls[0];
-      // Emit a custom SSE event so the frontend can show a "Calling tool…" indicator
       const announcement: StreamMessage = {
         type: 'toolCall:start',
         payload: {
@@ -244,7 +214,7 @@ export function createAgent(userId: number) {
         string,
         unknown
       >;
-      // Chart data is rendered client-side — don't send it back to the LLM
+      // Chart data is rendered client-side — don't pass it back to the LLM
       if (parsed['type'] === 'chart') return '__end__';
     } catch {
       // Not JSON → normal tool result, continue to model for a human-readable reply
@@ -284,4 +254,9 @@ export function getAgent(userId: number): ReturnType<typeof createAgent> {
     agentCache.set(userId, createAgent(userId));
   }
   return agentCache.get(userId)!;
+}
+
+/** Flush the cache — useful in tests or after a provider change. */
+export function clearAgentCache(): void {
+  agentCache.clear();
 }

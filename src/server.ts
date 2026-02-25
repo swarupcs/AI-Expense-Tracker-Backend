@@ -10,6 +10,7 @@ import { apiRouter } from './routes/index';
 import { apiLimiter } from './middleware/rateLimiter';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler';
 import { env } from './config/env';
+import { getLlmProviderInfo } from './agents/llm.factory';
 
 const app = express();
 
@@ -18,7 +19,7 @@ const app = express();
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
-    contentSecurityPolicy: false, // Pure API — no HTML served
+    contentSecurityPolicy: false,
   }),
 );
 
@@ -41,7 +42,6 @@ app.use(
   }),
 );
 
-// Trust proxy — required for correct IP-based rate limiting behind Nginx / Railway / Render
 app.set('trust proxy', 1);
 
 // ─── Body parsing ─────────────────────────────────────────────────────────────
@@ -57,13 +57,15 @@ app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 app.use('/api', apiLimiter);
 
-// ─── Health check ─────────────────────────────────────────────────────────────
+// ─── Health check — includes active LLM provider info ────────────────────────
 
 app.get('/health', (_req, res) => {
+  const llm = getLlmProviderInfo();
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     env: env.NODE_ENV,
+    llm,
   });
 });
 
@@ -81,6 +83,8 @@ app.use(errorHandler);
 async function start(): Promise<void> {
   await connectDB();
 
+  const llm = getLlmProviderInfo();
+
   const server = app.listen(env.PORT, () => {
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`🚀  Server    → http://localhost:${env.PORT}`);
@@ -88,11 +92,10 @@ async function start(): Promise<void> {
     console.log(`📊  Expenses  → http://localhost:${env.PORT}/api/expenses`);
     console.log(`💬  Chat      → http://localhost:${env.PORT}/api/chat`);
     console.log(`🩺  Health    → http://localhost:${env.PORT}/health`);
+    console.log(`🤖  LLM       → ${llm.provider.toUpperCase()} / ${llm.model}`);
     console.log(`🌱  Env       → ${env.NODE_ENV}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
   });
-
-  // ── Graceful shutdown ──────────────────────────────────────────────────────
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\n🛑  ${signal} — shutting down gracefully...`);
@@ -103,7 +106,6 @@ async function start(): Promise<void> {
       process.exit(0);
     });
 
-    // Force exit after 10 s if connections are stuck
     setTimeout(() => {
       console.error('⚠️   Forcing shutdown after 10 s timeout.');
       process.exit(1);
