@@ -36,6 +36,7 @@ model User {
   expenses      Expense[]
   refreshTokens RefreshToken[]
   settings      UserSettings?
+  budgets       Budget[]
 
   @@map("users")
 }
@@ -83,6 +84,20 @@ model Expense {
   @@index([userId, date])
   @@index([userId, category])
   @@map("expenses")
+}
+
+model Budget {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  category  Category
+  amount    Float    // monthly limit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@index([userId])
+  @@map("budgets")
 }
 
 model ChatMessage {

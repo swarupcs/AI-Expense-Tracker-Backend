@@ -117,6 +117,20 @@ export const resendVerificationSchema = z.object({
   email: z.string().email('Invalid email address').toLowerCase().trim(),
 });
 
+// ─── Budget Schemas ───────────────────────────────────────────────────────────
+
+export const upsertBudgetSchema = z.object({
+  category: z.enum(categoryValues),
+  amount: z.number({ error: 'Amount must be a number' }).positive('Amount must be positive').max(10_000_000),
+});
+
+export const budgetOverviewSchema = z.object({
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/, 'Month must be YYYY-MM')
+    .optional(),
+});
+
 // ─── User Settings Schema ─────────────────────────────────────────────────────
 
 export const updateUserSettingsSchema = z.object({
@@ -157,6 +171,8 @@ export type ChatQueryInput      = z.infer<typeof chatQuerySchema>;
 export type GoogleAuthInput = z.infer<typeof googleAuthSchema>;
 export type GoogleCallbackInput = z.infer<typeof googleCallbackSchema>;
 
+export type UpsertBudgetInput      = z.infer<typeof upsertBudgetSchema>;
+export type BudgetOverviewInput    = z.infer<typeof budgetOverviewSchema>;
 export type ForgotPasswordInput    = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput     = z.infer<typeof resetPasswordSchema>;
 export type VerifyEmailInput       = z.infer<typeof verifyEmailSchema>;
