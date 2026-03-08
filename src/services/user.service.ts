@@ -1,5 +1,5 @@
 import { prisma } from '../config/db';
-import type { UpdateUserSettingsInput } from '../lib/schemas';
+import type { UpdateUserSettingsInput, UpdateProfileInput } from '../lib/schemas';
 
 const SETTINGS_SELECT = {
   emailNotifications: true,
@@ -7,6 +7,26 @@ const SETTINGS_SELECT = {
   weeklyReport: true,
   onboardingCompleted: true,
 } as const;
+
+// ─── Update Profile ───────────────────────────────────────────────────────────
+
+export async function updateProfileService(userId: number, input: UpdateProfileInput) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: { name: input.name },
+    select: {
+      id: true, name: true, email: true, role: true, isActive: true,
+      authProvider: true, emailVerified: true, createdAt: true, lastLoginAt: true,
+      _count: { select: { expenses: true } },
+    },
+  });
+}
+
+// ─── Delete Account ───────────────────────────────────────────────────────────
+
+export async function deleteAccountService(userId: number) {
+  await prisma.user.delete({ where: { id: userId } });
+}
 
 // ─── Get User Settings ────────────────────────────────────────────────────────
 

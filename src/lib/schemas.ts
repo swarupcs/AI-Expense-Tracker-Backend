@@ -131,6 +131,12 @@ export const budgetOverviewSchema = z.object({
     .optional(),
 });
 
+// ─── Profile Schema ───────────────────────────────────────────────────────────
+
+export const updateProfileSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name too long').trim(),
+});
+
 // ─── User Settings Schema ─────────────────────────────────────────────────────
 
 export const updateUserSettingsSchema = z.object({
@@ -201,5 +207,6 @@ export type ResetPasswordInput     = z.infer<typeof resetPasswordSchema>;
 export type VerifyEmailInput       = z.infer<typeof verifyEmailSchema>;
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
 export type UpdateUserSettingsInput  = z.infer<typeof updateUserSettingsSchema>;
+export type UpdateProfileInput       = z.infer<typeof updateProfileSchema>;
 export type CreateRecurringInput     = z.infer<typeof createRecurringSchema>;
 export type UpdateRecurringInput     = z.infer<typeof updateRecurringSchema>;
