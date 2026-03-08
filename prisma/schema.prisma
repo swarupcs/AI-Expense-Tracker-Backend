@@ -38,6 +38,7 @@ model User {
   settings           UserSettings?
   budgets            Budget[]
   recurringExpenses  RecurringExpense[]
+  goals              FinancialGoal[]
 
   @@map("users")
 }
@@ -135,6 +136,31 @@ model ChatMessage {
   @@index([threadId])
   @@index([userId, threadId])
   @@map("chat_messages")
+}
+
+model FinancialGoal {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  name          String
+  type          GoalType  @default(SAVINGS)
+  targetAmount  Float
+  currentAmount Float     @default(0)
+  category      Category?
+  period        String?   // YYYY-MM — for SPENDING_LIMIT period
+  deadline      String?   // YYYY-MM-DD — for SAVINGS deadline
+  isCompleted   Boolean   @default(false)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("financial_goals")
+}
+
+enum GoalType {
+  SAVINGS
+  SPENDING_LIMIT
 }
 
 enum Role {

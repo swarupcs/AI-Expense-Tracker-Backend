@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Category, Frequency } from '../generated/prisma';
+import { Category, Frequency, GoalType } from '../generated/prisma';
 
 // ─── Auth Schemas ─────────────────────────────────────────────────────────────
 
@@ -168,6 +168,32 @@ export const updateRecurringSchema = z.object({
   notes: z.string().max(1000).optional(),
 });
 
+// ─── Financial Goal Schemas ───────────────────────────────────────────────────
+
+const goalTypeValues = Object.values(GoalType) as [GoalType, ...GoalType[]];
+
+export const createGoalSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(200, 'Name too long').trim(),
+  type: z.enum(goalTypeValues),
+  targetAmount: z.number({ error: 'Amount must be a number' }).positive('Amount must be positive').max(100_000_000),
+  currentAmount: z.number().min(0).max(100_000_000).optional(),
+  category: z.enum(categoryValues).optional(),
+  period: z.string().regex(/^\d{4}-\d{2}$/, 'Period must be YYYY-MM').optional(),
+  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Deadline must be YYYY-MM-DD').optional(),
+  notes: z.string().max(1000).optional(),
+});
+
+export const updateGoalSchema = z.object({
+  name: z.string().min(1).max(200).trim().optional(),
+  targetAmount: z.number().positive().max(100_000_000).optional(),
+  currentAmount: z.number().min(0).max(100_000_000).optional(),
+  category: z.enum(categoryValues).optional(),
+  period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  isCompleted: z.boolean().optional(),
+  notes: z.string().max(1000).optional(),
+});
+
 // ─── Chat Schemas ─────────────────────────────────────────────────────────────
 
 export const chatQuerySchema = z.object({
@@ -210,3 +236,5 @@ export type UpdateUserSettingsInput  = z.infer<typeof updateUserSettingsSchema>;
 export type UpdateProfileInput       = z.infer<typeof updateProfileSchema>;
 export type CreateRecurringInput     = z.infer<typeof createRecurringSchema>;
 export type UpdateRecurringInput     = z.infer<typeof updateRecurringSchema>;
+export type CreateGoalInput          = z.infer<typeof createGoalSchema>;
+export type UpdateGoalInput          = z.infer<typeof updateGoalSchema>;
