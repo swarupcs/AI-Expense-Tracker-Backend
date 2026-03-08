@@ -103,6 +103,24 @@ export async function getStatsService(
   };
 }
 
+// ─── Export (all matching, no pagination) ────────────────────────────────────
+
+export async function exportExpensesService(
+  userId: number,
+  filters: { from?: string; to?: string; category?: Category; search?: string },
+) {
+  const where: Prisma.ExpenseWhereInput = { userId };
+  const { from, to, category, search } = filters;
+
+  if (from && to) where.date = { gte: from, lte: to };
+  else if (from) where.date = { gte: from };
+  else if (to) where.date = { lte: to };
+  if (category) where.category = category;
+  if (search) where.title = { contains: search, mode: 'insensitive' };
+
+  return prisma.expense.findMany({ where, orderBy: { date: 'desc' } });
+}
+
 // ─── Get Single ───────────────────────────────────────────────────────────────
 
 export async function getExpenseByIdService(userId: number, id: number) {

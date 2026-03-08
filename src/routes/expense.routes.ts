@@ -15,6 +15,7 @@ import {
   updateExpense,
   deleteExpense,
   bulkDeleteExpenses,
+  exportExpenses,
 } from '../controllers/expense.controller';
 
 export const expenseRouter: Router = Router();
@@ -25,6 +26,7 @@ expenseRouter.use(authenticate);
 // Collection routes
 expenseRouter.get('/', validate(expenseFiltersSchema, 'query'), listExpenses);
 expenseRouter.get('/stats', getStats);
+expenseRouter.get('/export', exportExpenses);
 expenseRouter.post('/', validate(createExpenseSchema), createExpense);
 expenseRouter.delete('/', validate(bulkDeleteSchema), bulkDeleteExpenses);
 

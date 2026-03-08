@@ -77,7 +77,7 @@ export const expenseFiltersSchema = z.object({
   category: z.enum(categoryValues).optional(),
   search: z.string().max(200).optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  limit: z.coerce.number().int().min(1).max(2000).default(20),
 });
 
 export const bulkDeleteSchema = z.object({

@@ -14,6 +14,7 @@ import {
   updateExpenseService,
   deleteExpenseService,
   bulkDeleteExpensesService,
+  exportExpensesService,
 } from '../services/expense.service';
 
 // ─── GET /api/expenses ────────────────────────────────────────────────────────
@@ -135,6 +136,50 @@ export async function deleteExpense(
     }
     await deleteExpenseService(userId, id);
     res.json({ success: true, message: 'Expense deleted' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── GET /api/expenses/export ─────────────────────────────────────────────────
+
+export async function exportExpenses(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = (req as AuthenticatedRequest).user.sub;
+    const { from, to, category, search } = req.query as Record<string, string | undefined>;
+
+    const expenses = await exportExpensesService(userId, {
+      from,
+      to,
+      category: category as import('../generated/prisma').Category | undefined,
+      search,
+    });
+
+    const escapeCell = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const headers = ['Date', 'Title', 'Category', 'Amount (INR)', 'Notes'];
+    const rows = expenses.map((e) =>
+      [
+        e.date,
+        escapeCell(e.title),
+        e.category,
+        e.amount.toFixed(2),
+        escapeCell(e.notes ?? ''),
+      ].join(','),
+    );
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    const fromLabel = from ?? '';
+    const toLabel = to ?? '';
+    const filename = `expenses${fromLabel ? `-${fromLabel}` : ''}${toLabel ? `-${toLabel}` : ''}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    // UTF-8 BOM so Excel opens with correct encoding
+    res.send('\uFEFF' + csv);
   } catch (err) {
     next(err);
   }
