@@ -1,21 +1,33 @@
 import { prisma } from '../config/db';
 import type { UpdateUserSettingsInput } from '../lib/schemas';
 
+const SETTINGS_SELECT = {
+  emailNotifications: true,
+  budgetAlerts: true,
+  weeklyReport: true,
+  onboardingCompleted: true,
+} as const;
+
 // ─── Get User Settings ────────────────────────────────────────────────────────
 
 export async function getUserSettingsService(userId: number) {
-  // Upsert: returns existing or creates defaults on first access
-  const settings = await prisma.userSettings.upsert({
+  // For brand-new users (no existing record), check whether they already have
+  // expenses. If yes, they are an existing user — skip onboarding automatically.
+  const existing = await prisma.userSettings.findUnique({ where: { userId } });
+
+  if (!existing) {
+    const expenseCount = await prisma.expense.count({ where: { userId } });
+    const onboardingCompleted = expenseCount > 0;
+    return prisma.userSettings.create({
+      data: { userId, onboardingCompleted },
+      select: SETTINGS_SELECT,
+    });
+  }
+
+  return prisma.userSettings.findUniqueOrThrow({
     where: { userId },
-    create: { userId },
-    update: {},
-    select: {
-      emailNotifications: true,
-      budgetAlerts: true,
-      weeklyReport: true,
-    },
+    select: SETTINGS_SELECT,
   });
-  return settings;
 }
 
 // ─── Update User Settings ─────────────────────────────────────────────────────
@@ -24,15 +36,10 @@ export async function updateUserSettingsService(
   userId: number,
   input: UpdateUserSettingsInput,
 ) {
-  const settings = await prisma.userSettings.upsert({
+  return prisma.userSettings.upsert({
     where: { userId },
     create: { userId, ...input },
     update: input,
-    select: {
-      emailNotifications: true,
-      budgetAlerts: true,
-      weeklyReport: true,
-    },
+    select: SETTINGS_SELECT,
   });
-  return settings;
 }

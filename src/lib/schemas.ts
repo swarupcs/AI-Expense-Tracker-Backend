@@ -137,6 +137,7 @@ export const updateUserSettingsSchema = z.object({
   emailNotifications: z.boolean().optional(),
   budgetAlerts: z.boolean().optional(),
   weeklyReport: z.boolean().optional(),
+  onboardingCompleted: z.boolean().optional(),
 });
 
 // ─── Recurring Expense Schemas ────────────────────────────────────────────────
