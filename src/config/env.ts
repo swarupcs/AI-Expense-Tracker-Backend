@@ -60,6 +60,12 @@ const envSchema = z.object({
   // ── Email (Resend) ────────────────────────────────────────────────────────
   RESEND_API_KEY: z.string().min(1, 'RESEND_API_KEY is required'),
   EMAIL_FROM: z.string().default('Spendly <noreply@spendly.app>'),
+
+  // ── Razorpay ──────────────────────────────────────────────────────────────
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
+  RAZORPAY_PLAN_ID: z.string().optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
 });
 
 // ─── Cross-field validation ───────────────────────────────────────────────────

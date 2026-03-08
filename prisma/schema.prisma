@@ -40,6 +40,7 @@ model User {
   recurringExpenses  RecurringExpense[]
   goals              FinancialGoal[]
   alertLogs          AlertLog[]
+  subscription       Subscription?
 
   @@map("users")
 }
@@ -175,6 +176,34 @@ model AlertLog {
   @@unique([userId, type, ref])
   @@index([userId])
   @@map("alert_logs")
+}
+
+model Subscription {
+  id                 Int                @id @default(autoincrement())
+  userId             Int                @unique
+  plan               Plan               @default(FREE)
+  status             SubscriptionStatus @default(ACTIVE)
+  razorpaySubId      String?            @unique
+  razorpayCustomerId String?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+enum Plan {
+  FREE
+  PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PENDING
+  CANCELLED
+  EXPIRED
 }
 
 enum GoalType {

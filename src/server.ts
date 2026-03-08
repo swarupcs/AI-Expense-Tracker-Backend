@@ -48,7 +48,14 @@ app.set('trust proxy', 1);
 
 // ─── Body parsing ─────────────────────────────────────────────────────────────
 
-app.use(express.json({ limit: '10kb' }));
+app.use(
+  express.json({
+    limit: '10kb',
+    verify: (req: express.Request & { rawBody?: Buffer }, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 // ─── HTTP logging ─────────────────────────────────────────────────────────────
