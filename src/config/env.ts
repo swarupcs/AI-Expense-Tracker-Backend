@@ -59,7 +59,7 @@ const envSchema = z.object({
 
   // ── Email (Resend) ────────────────────────────────────────────────────────
   RESEND_API_KEY: z.string().min(1, 'RESEND_API_KEY is required'),
-  EMAIL_FROM: z.string().default('ExpenseAI <noreply@expenseai.app>'),
+  EMAIL_FROM: z.string().default('Spendly <noreply@spendly.app>'),
 });
 
 // ─── Cross-field validation ───────────────────────────────────────────────────

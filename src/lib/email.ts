@@ -11,7 +11,7 @@ const baseHtml = (content: string) => `
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ExpenseAI</title>
+  <title>Spendly</title>
 </head>
 <body style="margin:0;padding:0;background:#080810;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#080810;min-height:100vh;">
@@ -28,7 +28,7 @@ const baseHtml = (content: string) => `
                     <span style="font-size:22px;color:#fff;">⚡</span>
                   </td>
                   <td style="padding-left:12px;vertical-align:middle;">
-                    <div style="font-size:20px;font-weight:800;color:#f0efff;letter-spacing:-0.5px;">ExpenseAI</div>
+                    <div style="font-size:20px;font-weight:800;color:#f0efff;letter-spacing:-0.5px;">Spendly</div>
                     <div style="font-size:10px;color:#4a4870;letter-spacing:2px;text-transform:uppercase;font-family:monospace;">Smart Tracking</div>
                   </td>
                 </tr>
@@ -47,7 +47,7 @@ const baseHtml = (content: string) => `
           <tr>
             <td align="center" style="padding-top:24px;">
               <p style="font-size:11px;color:#4a4870;font-family:monospace;margin:0;">
-                © ${new Date().getFullYear()} ExpenseAI · If you didn't request this, ignore this email.
+                © ${new Date().getFullYear()} Spendly · If you didn't request this, ignore this email.
               </p>
             </td>
           </tr>
@@ -94,7 +94,7 @@ export async function sendVerificationEmail(
   await resend.emails.send({
     from: env.EMAIL_FROM,
     to,
-    subject: 'Verify your ExpenseAI email address',
+    subject: 'Verify your Spendly email address',
     html: baseHtml(content),
   });
 }
@@ -136,7 +136,7 @@ export async function sendPasswordResetEmail(
   await resend.emails.send({
     from: env.EMAIL_FROM,
     to,
-    subject: 'Reset your ExpenseAI password',
+    subject: 'Reset your Spendly password',
     html: baseHtml(content),
   });
 }
