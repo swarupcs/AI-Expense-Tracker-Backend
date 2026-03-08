@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Category } from '../generated/prisma'; 
+import { Category, Frequency } from '../generated/prisma';
 
 // ─── Auth Schemas ─────────────────────────────────────────────────────────────
 
@@ -139,6 +139,28 @@ export const updateUserSettingsSchema = z.object({
   weeklyReport: z.boolean().optional(),
 });
 
+// ─── Recurring Expense Schemas ────────────────────────────────────────────────
+
+const frequencyValues = Object.values(Frequency) as [Frequency, ...Frequency[]];
+
+export const createRecurringSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200, 'Title too long').trim(),
+  amount: z.number({ error: 'Amount must be a number' }).positive('Amount must be positive').max(10_000_000),
+  category: z.enum(categoryValues).optional(),
+  frequency: z.enum(frequencyValues),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
+  notes: z.string().max(1000).optional(),
+});
+
+export const updateRecurringSchema = z.object({
+  title: z.string().min(1).max(200).trim().optional(),
+  amount: z.number().positive().max(10_000_000).optional(),
+  category: z.enum(categoryValues).optional(),
+  frequency: z.enum(frequencyValues).optional(),
+  isActive: z.boolean().optional(),
+  notes: z.string().max(1000).optional(),
+});
+
 // ─── Chat Schemas ─────────────────────────────────────────────────────────────
 
 export const chatQuerySchema = z.object({
@@ -177,4 +199,6 @@ export type ForgotPasswordInput    = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput     = z.infer<typeof resetPasswordSchema>;
 export type VerifyEmailInput       = z.infer<typeof verifyEmailSchema>;
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
-export type UpdateUserSettingsInput = z.infer<typeof updateUserSettingsSchema>;
+export type UpdateUserSettingsInput  = z.infer<typeof updateUserSettingsSchema>;
+export type CreateRecurringInput     = z.infer<typeof createRecurringSchema>;
+export type UpdateRecurringInput     = z.infer<typeof updateRecurringSchema>;

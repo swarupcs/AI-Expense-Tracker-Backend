@@ -11,6 +11,7 @@ import { apiLimiter } from './middleware/rateLimiter';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler';
 import { env } from './config/env';
 import { getLlmProviderInfo } from './agents/llm.factory';
+import { processRecurringExpenses } from './services/recurring.service';
 
 const app = express();
 
@@ -111,6 +112,15 @@ async function start(): Promise<void> {
       process.exit(1);
     }, 10_000).unref();
   };
+
+  // ── Recurring expense processor ─────────────────────────────────────────────
+  // Run once on startup, then every hour to auto-log due recurring expenses
+  processRecurringExpenses().catch(console.error);
+  const recurringInterval = setInterval(
+    () => processRecurringExpenses().catch(console.error),
+    60 * 60 * 1000,
+  );
+  recurringInterval.unref(); // don't block process shutdown
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));

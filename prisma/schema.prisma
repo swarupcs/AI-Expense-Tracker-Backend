@@ -32,11 +32,12 @@ model User {
   passwordResetToken       String?   @unique
   passwordResetTokenExpiry DateTime?
 
-  chatMessages  ChatMessage[]
-  expenses      Expense[]
-  refreshTokens RefreshToken[]
-  settings      UserSettings?
-  budgets       Budget[]
+  chatMessages       ChatMessage[]
+  expenses           Expense[]
+  refreshTokens      RefreshToken[]
+  settings           UserSettings?
+  budgets            Budget[]
+  recurringExpenses  RecurringExpense[]
 
   @@map("users")
 }
@@ -86,6 +87,26 @@ model Expense {
   @@map("expenses")
 }
 
+model RecurringExpense {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  title       String
+  amount      Float
+  category    Category  @default(OTHER)
+  frequency   Frequency
+  startDate   String    // YYYY-MM-DD
+  nextDueDate String    // YYYY-MM-DD
+  isActive    Boolean   @default(true)
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([nextDueDate])
+  @@map("recurring_expenses")
+}
+
 model Budget {
   id        Int      @id @default(autoincrement())
   userId    Int
@@ -118,6 +139,13 @@ model ChatMessage {
 enum Role {
   USER
   ADMIN
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
 }
 
 enum Category {
