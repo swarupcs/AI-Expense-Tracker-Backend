@@ -11,11 +11,9 @@ import { getLlm } from './llm.factory';
 import type { ToolCapableLlm } from './llm.factory';
 import type { StreamMessage } from '../types/index';
 import { checkPlanLimit } from '../services/billing.service';
-import { AppError } from '../middleware/errorHandler';
 import { logToolCall } from '../services/toollog.service';
 
 // ─── Shared checkpointer ──────────────────────────────────────────────────────
-// For production at scale, replace with a Redis-backed or DB-backed checkpointer.
 const checkpointer = new MemorySaver();
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
@@ -29,12 +27,9 @@ function buildSystemPrompt(): string {
     year: 'numeric',
   });
 
-  // Indian Financial Year: April 1 – March 31
   const currentYear = now.getFullYear();
   const fyStart =
-    now.getMonth() >= 3 // April = month 3 (0-indexed)
-      ? `${currentYear}-04-01`
-      : `${currentYear - 1}-04-01`;
+    now.getMonth() >= 3 ? `${currentYear}-04-01` : `${currentYear - 1}-04-01`;
   const fyEnd =
     now.getMonth() >= 3 ? `${currentYear + 1}-03-31` : `${currentYear}-03-31`;
 
@@ -206,22 +201,33 @@ function isRelevantMessage(text: string): boolean {
   return true;
 }
 
+// ─── Generic invoke type ──────────────────────────────────────────────────────
+// Each LangChain tool has its own specific invoke signature.
+// TypeScript cannot unify them into one callable union type (TS2349).
+// We declare a plain generic type and cast through it once — this is safe
+// because all tool invoke methods are functionally (input, config?) => Promise<string>.
+type GenericInvoke = (input: unknown, config?: unknown) => Promise<unknown>;
+
 // ─── Agent Factory ────────────────────────────────────────────────────────────
 
 export function createAgent(userId: number, threadId?: string) {
   const tools = initTools(userId);
   const llm: ToolCapableLlm = getLlm();
 
-  // Wrap each tool to capture audit logs (duration + success/error)
+  // Wrap each tool's invoke with an audit-logging shim.
+  // The double cast (via `unknown`) is intentional and documented above.
+  /* eslint-disable @typescript-eslint/no-explicit-any */
   const auditedTools = tools.map((t) => {
-    const originalInvoke = t.invoke.bind(t);
-    t.invoke = async (input: unknown, config?: unknown) => {
+    const rawInvoke = (t.invoke as unknown as GenericInvoke).bind(t);
+
+    (t as any).invoke = async (
+      input: unknown,
+      config?: unknown,
+    ): Promise<unknown> => {
       const start = Date.now();
       try {
-        const result = await originalInvoke(
-          input as Parameters<typeof originalInvoke>[0],
-          config as Parameters<typeof originalInvoke>[1],
-        );
+        const result = await rawInvoke(input, config);
+
         logToolCall({
           userId,
           threadId,
@@ -229,7 +235,7 @@ export function createAgent(userId: number, threadId?: string) {
           args: input as Record<string, unknown>,
           result: (() => {
             try {
-              return JSON.parse(result as string);
+              return JSON.parse(result as string) as Record<string, unknown>;
             } catch {
               return { raw: result };
             }
@@ -237,6 +243,7 @@ export function createAgent(userId: number, threadId?: string) {
           durationMs: Date.now() - start,
           success: true,
         }).catch(() => {});
+
         return result;
       } catch (err) {
         logToolCall({
@@ -251,8 +258,10 @@ export function createAgent(userId: number, threadId?: string) {
         throw err;
       }
     };
+
     return t;
   });
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   const toolNode = new ToolNode(auditedTools);
 
@@ -296,7 +305,6 @@ export function createAgent(userId: number, threadId?: string) {
     const lastMessage = state.messages.at(-1) as AIMessage;
 
     if (lastMessage.tool_calls?.length) {
-      // Announce all tool calls, not just the first
       for (const call of lastMessage.tool_calls) {
         const announcement: StreamMessage = {
           type: 'toolCall:start',
@@ -323,7 +331,7 @@ export function createAgent(userId: number, threadId?: string) {
       >;
       if (parsed['type'] === 'chart') return '__end__';
     } catch {
-      // Not JSON → normal tool result
+      // Not JSON → normal tool result, continue to model
     }
 
     return 'callModel';
