@@ -33,7 +33,7 @@ export interface ParsedExpenseEntry {
 export async function parseReceiptImage(
   base64Image: string,
   mediaType: string,
-  userId: number,
+  _userId: number,
 ): Promise<ParsedReceipt> {
   const llm = getLlm();
 
@@ -58,9 +58,7 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) with these f
       content: [
         {
           type: 'image_url' as const,
-          image_url: {
-            url: `data:${mediaType};base64,${base64Image}`,
-          },
+          image_url: { url: `data:${mediaType};base64,${base64Image}` },
         },
         {
           type: 'text' as const,
@@ -70,7 +68,6 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) with these f
     },
   ];
 
-  // Use a type-safe invocation
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const response = await (llm as any).invoke(messages);
   const content =
@@ -78,15 +75,12 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) with these f
       ? response.content
       : JSON.stringify(response.content);
 
-  // Strip markdown fences if present
   const clean = content
     .replace(/```json\s*/g, '')
     .replace(/```\s*/g, '')
     .trim();
-
   const parsed = JSON.parse(clean) as ParsedReceipt;
 
-  // Validate and sanitize
   const validCategories: Category[] = [
     'DINING',
     'SHOPPING',
@@ -98,31 +92,22 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) with these f
     'OTHER',
   ];
 
-  if (!validCategories.includes(parsed.category)) {
-    parsed.category = 'OTHER';
-  }
-
-  if (!parsed.date || !/^\d{4}-\d{2}-\d{2}$/.test(parsed.date)) {
-    parsed.date = today;
-  }
-
-  if (!parsed.amount || parsed.amount <= 0) {
+  if (!validCategories.includes(parsed.category)) parsed.category = 'OTHER';
+  if (!parsed.date || !/^\d{4}-\d{2}-\d{2}$/.test(parsed.date))
+    parsed.date = today!;
+  if (!parsed.amount || parsed.amount <= 0)
     throw new Error('Could not extract a valid amount from the receipt.');
-  }
-
   if (!parsed.currency) parsed.currency = 'INR';
 
   return parsed;
 }
 
 // ─── Bulk expense parsing from natural language ───────────────────────────────
-// e.g. "spent 200 on lunch, 500 on uber, 150 on chai"
 
 export async function parseBulkExpenses(
   text: string,
 ): Promise<BulkParseResult> {
   const llm = getLlm();
-
   const today = new Date().toISOString().split('T')[0];
 
   const systemPrompt = `You are an expense parsing assistant. Parse the user's message into individual expense entries.
@@ -174,7 +159,6 @@ Rules:
     'OTHER',
   ];
 
-  // Sanitize
   parsed.expenses = (parsed.expenses ?? [])
     .filter((e) => e.amount > 0)
     .map((e) => ({
@@ -183,7 +167,6 @@ Rules:
     }));
 
   parsed.totalAmount = parsed.expenses.reduce((s, e) => s + e.amount, 0);
-
   return parsed;
 }
 
@@ -204,17 +187,16 @@ export interface CsvParseResult {
 
 export async function parseBankStatementCsv(
   csvContent: string,
-  userId: number,
+  _userId: number,
 ): Promise<CsvParseResult> {
   const lines = csvContent.split('\n').filter((l) => l.trim());
   if (lines.length < 2)
     throw new Error('CSV must have at least a header row and one data row.');
 
-  const headers = lines[0]
+  const headers = lines[0]!
     .split(',')
     .map((h) => h.replace(/"/g, '').trim().toLowerCase());
 
-  // Common header mappings
   const dateKeys = [
     'date',
     'transaction date',
@@ -246,7 +228,6 @@ export async function parseBankStatementCsv(
     );
   }
 
-  // Use LLM to batch-categorize
   const rows = lines.slice(1).map((line) => {
     const cols = line.split(',').map((c) => c.replace(/"/g, '').trim());
     const rawRow: Record<string, string> = {};
@@ -258,16 +239,15 @@ export async function parseBankStatementCsv(
 
   const errors: string[] = [];
   const result: CsvParseResult['rows'] = [];
-
-  // Process in batches of 20 for LLM categorization
   const BATCH_SIZE = 20;
+
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
 
     const descriptions = batch.map((r, idx) => ({
       idx,
-      desc: r[headers[descIdx]] ?? '',
-      amount: parseFloat((r[headers[amtIdx]] ?? '0').replace(/,/g, '')),
+      desc: r[headers[descIdx]!] ?? '',
+      amount: parseFloat((r[headers[amtIdx]!] ?? '0').replace(/,/g, '')),
     }));
 
     const batchText = descriptions
@@ -298,7 +278,6 @@ export async function parseBankStatementCsv(
           .trim(),
       );
     } catch {
-      // Fall back to OTHER if LLM fails
       descriptions.forEach((d) => {
         categoryMap[d.idx] = 'OTHER';
       });
@@ -307,19 +286,16 @@ export async function parseBankStatementCsv(
     for (const { idx, desc, amount } of descriptions) {
       if (isNaN(amount) || amount <= 0) {
         errors.push(
-          `Row ${i + idx + 2}: Invalid amount "${batch[idx]?.[headers[amtIdx]]}"`,
+          `Row ${i + idx + 2}: Invalid amount "${batch[idx]?.[headers[amtIdx]!]}"`,
         );
         continue;
       }
 
-      const rawDate = batch[idx]?.[headers[dateIdx]] ?? '';
-      let parsedDate = new Date().toISOString().split('T')[0];
+      const rawDate = batch[idx]?.[headers[dateIdx]!] ?? '';
+      let parsedDate = new Date().toISOString().split('T')[0]!;
       if (rawDate) {
-        // Try parsing common Indian date formats
         const d = new Date(rawDate);
-        if (!isNaN(d.getTime())) {
-          parsedDate = d.toISOString().split('T')[0];
-        }
+        if (!isNaN(d.getTime())) parsedDate = d.toISOString().split('T')[0]!;
       }
 
       result.push({
@@ -353,13 +329,14 @@ export async function bulkCreateFromParsed(
     notes?: string | null;
   }>,
 ): Promise<number> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split('T')[0]!;
 
   await prisma.expense.createMany({
     data: entries.map((e) => ({
       userId,
       title: e.title,
       amount: e.amount,
+      // FIX: convertedAmount required — defaults to amount for INR imports
       convertedAmount: e.amount,
       category: e.category,
       date: e.date ?? today,

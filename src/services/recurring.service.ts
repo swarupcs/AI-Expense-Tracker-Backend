@@ -1,5 +1,8 @@
 import { prisma as db } from '../config/db';
-import type { CreateRecurringInput, UpdateRecurringInput } from '../lib/schemas';
+import type {
+  CreateRecurringInput,
+  UpdateRecurringInput,
+} from '../lib/schemas';
 import { Frequency } from '../generated/prisma';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -36,9 +39,11 @@ export async function getRecurringExpensesService(userId: number) {
   });
 }
 
-export async function createRecurringService(userId: number, data: CreateRecurringInput) {
+export async function createRecurringService(
+  userId: number,
+  data: CreateRecurringInput,
+) {
   const today = todayString();
-  // nextDueDate = startDate if startDate >= today, else today
   const nextDueDate = data.startDate >= today ? data.startDate : today;
 
   return db.recurringExpense.create({
@@ -55,9 +60,18 @@ export async function createRecurringService(userId: number, data: CreateRecurri
   });
 }
 
-export async function updateRecurringService(userId: number, id: number, data: UpdateRecurringInput) {
-  const existing = await db.recurringExpense.findFirst({ where: { id, userId } });
-  if (!existing) throw Object.assign(new Error('Recurring expense not found'), { status: 404 });
+export async function updateRecurringService(
+  userId: number,
+  id: number,
+  data: UpdateRecurringInput,
+) {
+  const existing = await db.recurringExpense.findFirst({
+    where: { id, userId },
+  });
+  if (!existing)
+    throw Object.assign(new Error('Recurring expense not found'), {
+      status: 404,
+    });
 
   return db.recurringExpense.update({
     where: { id },
@@ -73,8 +87,13 @@ export async function updateRecurringService(userId: number, id: number, data: U
 }
 
 export async function deleteRecurringService(userId: number, id: number) {
-  const existing = await db.recurringExpense.findFirst({ where: { id, userId } });
-  if (!existing) throw Object.assign(new Error('Recurring expense not found'), { status: 404 });
+  const existing = await db.recurringExpense.findFirst({
+    where: { id, userId },
+  });
+  if (!existing)
+    throw Object.assign(new Error('Recurring expense not found'), {
+      status: 404,
+    });
   await db.recurringExpense.delete({ where: { id } });
 }
 
@@ -99,7 +118,6 @@ export async function processRecurringExpenses(): Promise<void> {
   if (due.length === 0) return;
 
   for (const rec of due) {
-    // Walk forward from current nextDueDate until we've covered all missed occurrences
     let cursor = rec.nextDueDate;
 
     while (cursor <= today) {
@@ -108,6 +126,8 @@ export async function processRecurringExpenses(): Promise<void> {
           userId: rec.userId,
           title: rec.title,
           amount: rec.amount,
+          // FIX: convertedAmount must be set (defaults to same as amount for INR recurring)
+          convertedAmount: rec.amount,
           category: rec.category,
           date: cursor,
           notes: rec.notes ?? undefined,
@@ -116,12 +136,13 @@ export async function processRecurringExpenses(): Promise<void> {
       cursor = advanceDate(cursor, rec.frequency);
     }
 
-    // Update nextDueDate to next future occurrence
     await db.recurringExpense.update({
       where: { id: rec.id },
       data: { nextDueDate: cursor },
     });
   }
 
-  console.log(`[recurring] Processed ${due.length} recurring expense(s) — ${today}`);
+  console.log(
+    `[recurring] Processed ${due.length} recurring expense(s) — ${today}`,
+  );
 }
