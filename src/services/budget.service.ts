@@ -3,8 +3,6 @@ import { AppError } from '../middleware/errorHandler';
 import type { Category } from '../generated/prisma';
 import type { UpsertBudgetInput } from '../lib/schemas';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 export interface BudgetOverviewItem {
   id: number;
   category: Category;
@@ -15,8 +13,6 @@ export interface BudgetOverviewItem {
   isOverBudget: boolean;
 }
 
-// ─── Get All Budgets ──────────────────────────────────────────────────────────
-
 export async function getBudgetsService(userId: number) {
   return prisma.budget.findMany({
     where: { userId },
@@ -25,9 +21,10 @@ export async function getBudgetsService(userId: number) {
   });
 }
 
-// ─── Upsert Budget ────────────────────────────────────────────────────────────
-
-export async function upsertBudgetService(userId: number, input: UpsertBudgetInput) {
+export async function upsertBudgetService(
+  userId: number,
+  input: UpsertBudgetInput,
+) {
   const { category, amount } = input;
   return prisma.budget.upsert({
     where: { userId_category: { userId, category } },
@@ -37,15 +34,13 @@ export async function upsertBudgetService(userId: number, input: UpsertBudgetInp
   });
 }
 
-// ─── Delete Budget ────────────────────────────────────────────────────────────
-
 export async function deleteBudgetService(userId: number, budgetId: number) {
-  const budget = await prisma.budget.findFirst({ where: { id: budgetId, userId } });
+  const budget = await prisma.budget.findFirst({
+    where: { id: budgetId, userId },
+  });
   if (!budget) throw new AppError(404, 'Budget not found');
   await prisma.budget.delete({ where: { id: budgetId } });
 }
-
-// ─── Budget Overview (with spending) ─────────────────────────────────────────
 
 export async function getBudgetOverviewService(
   userId: number,
@@ -61,9 +56,7 @@ export async function getBudgetOverviewService(
   const mon = parseInt(monStr!, 10); // 1-based
 
   const from = `${targetMonth}-01`;
-  // ← Use Date arithmetic instead of string padding to avoid December edge case
-  const lastDay = new Date(year, mon, 0).getDate(); // mon here is already 1-based, Date(y, m, 0) gives last day of month m-1...
-  // Actually this is correct as-is — new Date(2024, 4, 0) = April 30. No bug here.
+  const lastDay = new Date(year, mon, 0).getDate();
   const to = `${targetMonth}-${String(lastDay).padStart(2, '0')}`;
 
   const [budgets, expenses] = await Promise.all([
@@ -73,15 +66,19 @@ export async function getBudgetOverviewService(
     }),
     prisma.expense.findMany({
       where: { userId, date: { gte: from, lte: to } },
-      select: { category: true, convertedAmount: true },
+      // FIX: also select `amount` so we can fall back for legacy rows
+      select: { category: true, convertedAmount: true, amount: true },
     }),
   ]);
 
   const spentByCategory: Partial<Record<Category, number>> = {};
   for (const exp of expenses) {
-    // ← Fall back to 0; never let a null convertedAmount corrupt the sum
-    const amt = exp.convertedAmount ?? 0;
-    spentByCategory[exp.category] = (spentByCategory[exp.category] ?? 0) + amt;
+    // FIX: fall back to raw `amount` when convertedAmount is 0 (legacy rows
+    // inserted before the convertedAmount fix was applied)
+    const effectiveAmount =
+      exp.convertedAmount > 0 ? exp.convertedAmount : exp.amount;
+    spentByCategory[exp.category] =
+      (spentByCategory[exp.category] ?? 0) + effectiveAmount;
   }
 
   return budgets.map((b) => {

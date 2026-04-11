@@ -2,7 +2,8 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { prisma } from '../config/db';
 import type { Category } from '../generated/prisma';
-import { checkExpenseAlerts } from '../services/alerts.service';
+// FIX: import from the FULL alert service (alert.service.ts), not the stub (alerts.service.ts)
+import { checkExpenseAlerts } from '../services/alert.service';
 
 const categoryEnum = z.enum([
   'DINING',
@@ -25,16 +26,20 @@ export function initTools(userId: number) {
   const addExpense = tool(
     async ({ title, amount, category, date, notes }) => {
       const currency = 'INR';
-      const convertedAmount = amount;
+      // FIX: always set exchangeRate=1 and convertedAmount=amount for INR entries
+      // This ensures convertedAmount is never 0 or undefined in the DB
+      const exchangeRate = 1;
+      const convertedAmount = Math.round(amount * exchangeRate * 100) / 100;
+
       const expense = await prisma.expense.create({
         data: {
           title,
           amount,
           currency,
-          exchangeRate: 1,
-          convertedAmount, // ← was just `amount` before, but explicitly named now
+          exchangeRate,
+          convertedAmount,
           category: (category as Category) ?? 'OTHER',
-          date: date ?? new Date().toISOString().split('T')[0],
+          date: date ?? new Date().toISOString().split('T')[0]!,
           notes,
           userId,
         },
@@ -95,7 +100,16 @@ export function initTools(userId: number) {
       }
 
       const newAmount = amount ?? existing.amount;
-      const newRate = existing.exchangeRate ?? 1;
+
+      // FIX: guard null DB value — existing.exchangeRate can be null pre-migration
+      const existingRate =
+        existing.exchangeRate != null && existing.exchangeRate > 0
+          ? existing.exchangeRate
+          : 1.0;
+
+      // FIX: always recalculate convertedAmount with the resolved rate
+      const newConvertedAmount =
+        Math.round(newAmount * existingRate * 100) / 100;
 
       const updated = await prisma.expense.update({
         where: { id },
@@ -103,7 +117,7 @@ export function initTools(userId: number) {
           ...(title !== undefined && { title }),
           ...(amount !== undefined && {
             amount,
-            convertedAmount: Math.round(newAmount * newRate * 100) / 100,
+            convertedAmount: newConvertedAmount,
           }),
           ...(category !== undefined && { category: category as Category }),
           ...(date !== undefined && { date }),
@@ -161,11 +175,18 @@ export function initTools(userId: number) {
         });
       }
 
-      const total = rows.reduce((sum, r) => sum + r.convertedAmount, 0);
+      // FIX: use convertedAmount for totals; guard against 0/null with fallback to amount
+      const total = rows.reduce(
+        (sum, r) =>
+          sum + (r.convertedAmount > 0 ? r.convertedAmount : r.amount),
+        0,
+      );
       const byCategory: Record<string, number> = {};
       for (const r of rows) {
+        const effectiveAmount =
+          r.convertedAmount > 0 ? r.convertedAmount : r.amount;
         byCategory[r.category] =
-          (byCategory[r.category] ?? 0) + r.convertedAmount;
+          (byCategory[r.category] ?? 0) + effectiveAmount;
       }
 
       return JSON.stringify({
@@ -174,7 +195,8 @@ export function initTools(userId: number) {
           title: r.title,
           amount: r.amount,
           currency: r.currency,
-          convertedAmount: r.convertedAmount,
+          // FIX: surface the effective amount so the AI can reason correctly
+          convertedAmount: r.convertedAmount > 0 ? r.convertedAmount : r.amount,
           category: r.category,
           date: r.date,
           notes: r.notes,
@@ -222,14 +244,14 @@ export function initTools(userId: number) {
       const [year, mon] = targetMonth.split('-').map(Number);
 
       const from = `${targetMonth}-01`;
-      const lastDay = new Date(year, mon, 0).getDate();
+      const lastDay = new Date(year!, mon!, 0).getDate();
       const to = `${targetMonth}-${String(lastDay).padStart(2, '0')}`;
 
       const [budgets, expenses] = await Promise.all([
         prisma.budget.findMany({ where: { userId } }),
         prisma.expense.findMany({
           where: { userId, date: { gte: from, lte: to } },
-          select: { category: true, convertedAmount: true },
+          select: { category: true, convertedAmount: true, amount: true },
         }),
       ]);
 
@@ -244,8 +266,11 @@ export function initTools(userId: number) {
 
       const spentByCategory: Record<string, number> = {};
       for (const e of expenses) {
+        // FIX: fall back to `amount` when convertedAmount is 0 (legacy rows)
+        const effectiveAmount =
+          e.convertedAmount > 0 ? e.convertedAmount : e.amount;
         spentByCategory[e.category] =
-          (spentByCategory[e.category] ?? 0) + e.convertedAmount;
+          (spentByCategory[e.category] ?? 0) + effectiveAmount;
       }
 
       const overview = budgets.map((b) => {
@@ -371,7 +396,7 @@ export function initTools(userId: number) {
             const period = g.period ?? currentMonth;
             const [yr, mn] = period.split('-').map(Number);
             const from = `${period}-01`;
-            const to = `${period}-${new Date(yr, mn, 0).getDate()}`;
+            const to = `${period}-${new Date(yr!, mn!, 0).getDate()}`;
             const where: Parameters<
               typeof prisma.expense.aggregate
             >[0]['where'] = {
@@ -456,21 +481,23 @@ export function initTools(userId: number) {
       const [p1, p2] = await Promise.all([
         prisma.expense.findMany({
           where: { userId, date: { gte: period1From, lte: period1To } },
-          select: { category: true, convertedAmount: true },
+          select: { category: true, convertedAmount: true, amount: true },
         }),
         prisma.expense.findMany({
           where: { userId, date: { gte: period2From, lte: period2To } },
-          select: { category: true, convertedAmount: true },
+          select: { category: true, convertedAmount: true, amount: true },
         }),
       ]);
 
+      // FIX: fall back to amount for legacy rows where convertedAmount=0
       const aggregate = (rows: typeof p1) => {
         const byCategory: Record<string, number> = {};
         let total = 0;
         for (const r of rows) {
-          byCategory[r.category] =
-            (byCategory[r.category] ?? 0) + r.convertedAmount;
-          total += r.convertedAmount;
+          const effective =
+            r.convertedAmount > 0 ? r.convertedAmount : r.amount;
+          byCategory[r.category] = (byCategory[r.category] ?? 0) + effective;
+          total += effective;
         }
         return {
           total: Math.round(total * 100) / 100,
@@ -555,10 +582,10 @@ export function initTools(userId: number) {
       const [year, mon] = targetMonth.split('-').map(Number);
 
       const from = `${targetMonth}-01`;
-      const lastDay = new Date(year, mon, 0).getDate();
+      const lastDay = new Date(year!, mon!, 0).getDate();
       const to = `${targetMonth}-${String(lastDay).padStart(2, '0')}`;
 
-      const todayStr = now.toISOString().split('T')[0];
+      const todayStr = now.toISOString().split('T')[0]!;
       const dayOfMonth = now.getDate();
       const daysInMonth = lastDay;
 
@@ -567,18 +594,27 @@ export function initTools(userId: number) {
           userId,
           date: { gte: from, lte: todayStr < to ? todayStr : to },
         },
-        select: { category: true, convertedAmount: true, date: true },
+        select: {
+          category: true,
+          convertedAmount: true,
+          amount: true,
+          date: true,
+        },
       });
 
-      const spentSoFar = expenses.reduce((s, e) => s + e.convertedAmount, 0);
+      // FIX: use effective amount (fall back to amount for legacy rows)
+      const spentSoFar = expenses.reduce(
+        (s, e) => s + (e.convertedAmount > 0 ? e.convertedAmount : e.amount),
+        0,
+      );
       const dailyAvg = dayOfMonth > 0 ? spentSoFar / dayOfMonth : 0;
       const projectedTotal = Math.round(dailyAvg * daysInMonth * 100) / 100;
       const remainingDays = daysInMonth - dayOfMonth;
       const projectedRemaining =
         Math.round(dailyAvg * remainingDays * 100) / 100;
 
-      const prevMonthNum = mon === 1 ? 12 : mon - 1;
-      const prevYear = mon === 1 ? year - 1 : year;
+      const prevMonthNum = mon! === 1 ? 12 : mon! - 1;
+      const prevYear = mon! === 1 ? year! - 1 : year!;
       const prevMonthStr = `${prevYear}-${String(prevMonthNum).padStart(2, '0')}`;
       const prevLastDay = new Date(prevYear, prevMonthNum, 0).getDate();
       const prevAgg = await prisma.expense.aggregate({
@@ -598,7 +634,9 @@ export function initTools(userId: number) {
 
       const byCategory = expenses.reduce(
         (acc, e) => {
-          acc[e.category] = (acc[e.category] ?? 0) + e.convertedAmount;
+          const effective =
+            e.convertedAmount > 0 ? e.convertedAmount : e.amount;
+          acc[e.category] = (acc[e.category] ?? 0) + effective;
           return acc;
         },
         {} as Record<string, number>,
@@ -660,7 +698,7 @@ export function initTools(userId: number) {
 
       const months: string[] = [];
       for (let i = 1; i <= 3; i++) {
-        const d = new Date(year, mon - 1 - i, 1);
+        const d = new Date(year!, mon! - 1 - i, 1);
         months.push(
           `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
         );
@@ -668,15 +706,19 @@ export function initTools(userId: number) {
 
       const getMonthSpend = async (m: string) => {
         const [y, mo] = m.split('-').map(Number);
-        const lastDay = new Date(y, mo, 0).getDate();
+        const lastDay = new Date(y!, mo!, 0).getDate();
         const rows = await prisma.expense.findMany({
-          where: { userId, date: { gte: `${m}-01`, lte: `${m}-${lastDay}` } },
-          select: { category: true, convertedAmount: true },
+          where: {
+            userId,
+            date: { gte: `${m}-01`, lte: `${m}-${lastDay}` },
+          },
+          select: { category: true, convertedAmount: true, amount: true },
         });
         const byCategory: Record<string, number> = {};
         for (const r of rows) {
-          byCategory[r.category] =
-            (byCategory[r.category] ?? 0) + r.convertedAmount;
+          const effective =
+            r.convertedAmount > 0 ? r.convertedAmount : r.amount;
+          byCategory[r.category] = (byCategory[r.category] ?? 0) + effective;
         }
         return byCategory;
       };
@@ -762,7 +804,7 @@ export function initTools(userId: number) {
 
       for (const m of months) {
         const [yr, mn] = m.split('-').map(Number);
-        const lastDay = new Date(yr, mn, 0).getDate();
+        const lastDay = new Date(yr!, mn!, 0).getDate();
         const rows = await prisma.expense.groupBy({
           by: ['category'],
           where: { userId, date: { gte: `${m}-01`, lte: `${m}-${lastDay}` } },
@@ -841,6 +883,8 @@ export function initTools(userId: number) {
       for (const row of rows) {
         let key: string;
         const d = new Date(row.date);
+        const effective =
+          row.convertedAmount > 0 ? row.convertedAmount : row.amount;
 
         if (groupBy === 'month') {
           key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -859,7 +903,7 @@ export function initTools(userId: number) {
           key = row.date;
         }
 
-        grouped[key] = (grouped[key] ?? 0) + row.convertedAmount;
+        grouped[key] = (grouped[key] ?? 0) + effective;
       }
 
       const data = Object.entries(grouped)
@@ -919,11 +963,11 @@ export function initTools(userId: number) {
       const now = new Date();
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       const [year, mon] = currentMonth.split('-').map(Number);
-      const lastDay = new Date(year, mon, 0).getDate();
+      const lastDay = new Date(year!, mon!, 0).getDate();
       const from = `${currentMonth}-01`;
       const to = `${currentMonth}-${lastDay}`;
 
-      const todayStr = now.toISOString().split('T')[0];
+      const todayStr = now.toISOString().split('T')[0]!;
 
       const [monthExpenses, budgets, goals, recurring, subscription] =
         await Promise.all([

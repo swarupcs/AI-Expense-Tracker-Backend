@@ -1,9 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// EXPENSE SERVICE — COMPLETE REPLACEMENT for src/services/expense.service.ts
-//
-// Key fix: use Prisma.ExpenseUncheckedCreateInput / ExpenseUncheckedUpdateInput
-// instead of ExpenseCreateInput/ExpenseUpdateInput so that `userId` is accepted
-// as a scalar (not requiring the `user: { connect: ... }` relation object).
+// EXPENSE SERVICE — src/services/expense.service.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Prisma, Category } from '../generated/prisma';
@@ -73,7 +69,6 @@ export async function getStatsService(
   from?: string,
   to?: string,
 ): Promise<ExpenseStats> {
-  // ← Default to current month when no range is provided
   const now = new Date();
   const defaultFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
   const defaultTo = now.toISOString().split('T')[0];
@@ -112,7 +107,6 @@ export async function getStatsService(
     min: aggregate._min.convertedAmount ?? 0,
     byCategory: byCategory.map((c) => ({
       category: c.category,
-      // ← Guard against rows where convertedAmount was never set
       amount: c._sum.convertedAmount ?? 0,
       count: c._count,
     })),
@@ -153,12 +147,13 @@ export async function createExpenseService(
 ) {
   const { title, amount, category, date, notes } = input;
   const currency = input.currency ?? 'INR';
-  const exchangeRate = input.exchangeRate ?? 1.0;
+  // FIX: guard against undefined/null exchangeRate — always fall back to 1
+  const exchangeRate =
+    input.exchangeRate != null && input.exchangeRate > 0
+      ? input.exchangeRate
+      : 1.0;
   const convertedAmount = Math.round(amount * exchangeRate * 100) / 100;
 
-  // Cast to unknown first to avoid the intersection type conflict with
-  // ExpenseCreateInput (which requires `user` relation) vs
-  // ExpenseUncheckedCreateInput (which accepts raw `userId`).
   const createData: Prisma.ExpenseUncheckedCreateInput = {
     title,
     amount,
@@ -166,12 +161,11 @@ export async function createExpenseService(
     exchangeRate,
     convertedAmount,
     category: (category as Category) ?? 'OTHER',
-    date: date ?? new Date().toISOString().split('T')[0],
+    date: date ?? new Date().toISOString().split('T')[0]!,
     notes,
     userId,
   };
 
-  // Attach new optional fields only when present (graceful pre-migration)
   const inputAny = input as Record<string, unknown>;
   if (inputAny['merchant'] !== undefined) {
     (createData as Record<string, unknown>)['merchant'] = inputAny['merchant'];
@@ -183,7 +177,6 @@ export async function createExpenseService(
 
   const expense = await prisma.expense.create({ data: createData });
 
-  // Fire-and-forget alerts
   checkExpenseAlerts(userId, {
     id: expense.id,
     title: expense.title,
@@ -208,24 +201,33 @@ export async function updateExpenseService(
   if (!existing) throw new AppError(404, 'Expense not found');
 
   const { title, amount, category, date, notes } = input;
-  const newAmount = amount ?? existing.amount;
-  const newRate = input.exchangeRate ?? existing.exchangeRate;
 
-  // Build update payload using the unchecked variant to accept scalar userId
+  const newAmount = amount ?? existing.amount;
+
+  // FIX: guard null DB value AND null input value — always resolve to a positive number
+  const existingRate =
+    existing.exchangeRate != null && existing.exchangeRate > 0
+      ? existing.exchangeRate
+      : 1.0;
+  const newRate =
+    input.exchangeRate != null && input.exchangeRate > 0
+      ? input.exchangeRate
+      : existingRate;
+
+  const newConvertedAmount = Math.round(newAmount * newRate * 100) / 100;
+
   const updateData: Prisma.ExpenseUncheckedUpdateInput = {
     ...(title !== undefined && { title }),
     ...(amount !== undefined && { amount }),
     ...(input.currency !== undefined && { currency: input.currency }),
-    ...(input.exchangeRate !== undefined && {
-      exchangeRate: input.exchangeRate,
-    }),
-    convertedAmount: Math.round(newAmount * newRate * 100) / 100,
+    ...(input.exchangeRate !== undefined && { exchangeRate: newRate }),
+    // FIX: always recalculate convertedAmount whenever amount OR exchangeRate changes
+    convertedAmount: newConvertedAmount,
     ...(category !== undefined && { category: category as Category }),
     ...(date !== undefined && { date }),
     ...(notes !== undefined && { notes }),
   };
 
-  // Attach new optional fields only when present
   const inputAny = input as Record<string, unknown>;
   if (inputAny['merchant'] !== undefined) {
     (updateData as Record<string, unknown>)['merchant'] = inputAny['merchant'];
