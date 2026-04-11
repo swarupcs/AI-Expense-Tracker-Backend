@@ -93,6 +93,7 @@ export async function signInService(input: SignInInput): Promise<AuthResult> {
       passwordHash: true,
       isActive: true,
       authProvider: true,
+      emailVerified: true,
       createdAt: true,
     },
   });
@@ -412,6 +413,7 @@ export async function getMeService(userId: number) {
       authProvider: true,
       googleId: true,
       googlePicture: true,
+      emailVerified: true,
       createdAt: true,
       updatedAt: true,
       _count: { select: { expenses: true } },
@@ -525,7 +527,10 @@ export async function resendVerificationService(input: ResendVerificationInput):
     data: { emailVerificationToken: token, emailVerificationTokenExpiry: expiry },
   });
 
-  sendVerificationEmail(user.email, user.name, token).catch(console.error);
+  // sendVerificationEmail(user.email, user.name, token).catch(console.error);
+  sendVerificationEmail(user.email, user.name, token)
+    .then(() => console.log('✅ Verification email sent to:', user.email))
+    .catch((err) => console.error('❌ Verification email failed:', err));
 }
 
 // ─── Forgot Password ──────────────────────────────────────────────────────────
