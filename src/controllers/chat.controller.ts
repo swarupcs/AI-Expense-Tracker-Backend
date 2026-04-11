@@ -52,7 +52,8 @@ export async function streamChat(
   });
 
   try {
-    const agent = getAgent(userId);
+    // FIX: await getAgent — it is now async due to PostgresSaver setup
+    const agent = await getAgent(userId, scopedThreadId);
 
     const responseStream = await agent.stream(
       { messages: [{ role: 'user', content: query }] },

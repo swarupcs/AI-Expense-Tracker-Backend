@@ -1,9 +1,6 @@
 import type { LangGraphRunnableConfig } from '@langchain/langgraph';
-import {
-  MemorySaver,
-  MessagesAnnotation,
-  StateGraph,
-} from '@langchain/langgraph';
+import { MessagesAnnotation, StateGraph } from '@langchain/langgraph';
+import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
 import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { AIMessage, ToolMessage } from '@langchain/core/messages';
 import { initTools } from '../tools/index';
@@ -12,9 +9,44 @@ import type { ToolCapableLlm } from './llm.factory';
 import type { StreamMessage } from '../types/index';
 import { checkPlanLimit } from '../services/billing.service';
 import { logToolCall } from '../services/toollog.service';
+import { env } from '../config/env';
 
-// ─── Shared checkpointer ──────────────────────────────────────────────────────
-const checkpointer = new MemorySaver();
+// ─── Shared PostgresSaver checkpointer ───────────────────────────────────────
+// Persists conversation history across server restarts.
+// Uses the same DATABASE_URL already configured for Prisma.
+
+let _checkpointer: PostgresSaver | null = null;
+
+async function getCheckpointer(): Promise<PostgresSaver> {
+  if (_checkpointer) return _checkpointer;
+
+  const saver = PostgresSaver.fromConnString(env.DATABASE_URL);
+  // Creates the required langgraph checkpoint tables if they don't exist yet.
+  await saver.setup();
+  _checkpointer = saver;
+  return saver;
+}
+
+// ─── Agent cache with TTL eviction ───────────────────────────────────────────
+
+const AGENT_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+interface CacheEntry {
+  agent: Awaited<ReturnType<typeof createAgent>>;
+  expiresAt: number;
+}
+
+const agentCache = new Map<string, CacheEntry>();
+
+/** Evict all expired entries. Called on every cache write. */
+function evictExpiredAgents(): void {
+  const now = Date.now();
+  for (const [key, entry] of agentCache) {
+    if (now > entry.expiresAt) {
+      agentCache.delete(key);
+    }
+  }
+}
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
 
@@ -202,20 +234,16 @@ function isRelevantMessage(text: string): boolean {
 }
 
 // ─── Generic invoke type ──────────────────────────────────────────────────────
-// Each LangChain tool has its own specific invoke signature.
-// TypeScript cannot unify them into one callable union type (TS2349).
-// We declare a plain generic type and cast through it once — this is safe
-// because all tool invoke methods are functionally (input, config?) => Promise<string>.
 type GenericInvoke = (input: unknown, config?: unknown) => Promise<unknown>;
 
 // ─── Agent Factory ────────────────────────────────────────────────────────────
 
-export function createAgent(userId: number, threadId?: string) {
+export async function createAgent(userId: number, threadId?: string) {
   const tools = initTools(userId);
   const llm: ToolCapableLlm = getLlm();
+  // FIX: use PostgresSaver so history survives server restarts
+  const checkpointer = await getCheckpointer();
 
-  // Wrap each tool's invoke with an audit-logging shim.
-  // The double cast (via `unknown`) is intentional and documented above.
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const auditedTools = tools.map((t) => {
     const rawInvoke = (t.invoke as unknown as GenericInvoke).bind(t);
@@ -230,6 +258,7 @@ export function createAgent(userId: number, threadId?: string) {
 
         logToolCall({
           userId,
+          // FIX: threadId now correctly flows from createAgent's parameter
           threadId,
           toolName: t.name,
           args: input as Record<string, unknown>,
@@ -265,8 +294,6 @@ export function createAgent(userId: number, threadId?: string) {
 
   const toolNode = new ToolNode(auditedTools);
 
-  // ── Nodes ─────────────────────────────────────────────────────────────────
-
   async function callModel(
     state: typeof MessagesAnnotation.State,
     _config: LangGraphRunnableConfig,
@@ -296,8 +323,6 @@ export function createAgent(userId: number, threadId?: string) {
     return { messages: [response] };
   }
 
-  // ── Edge logic ────────────────────────────────────────────────────────────
-
   function shouldContinue(
     state: typeof MessagesAnnotation.State,
     config: LangGraphRunnableConfig,
@@ -313,7 +338,8 @@ export function createAgent(userId: number, threadId?: string) {
             args: call.args as Record<string, unknown>,
           },
         };
-        config.writer!(announcement);
+        // FIX: optional chaining — writer may be undefined in non-streaming calls
+        config.writer?.(announcement);
       }
       return 'tools';
     }
@@ -337,8 +363,6 @@ export function createAgent(userId: number, threadId?: string) {
     return 'callModel';
   }
 
-  // ── Graph ─────────────────────────────────────────────────────────────────
-
   const graph = new StateGraph(MessagesAnnotation)
     .addNode('callModel', callModel)
     .addNode('tools', toolNode)
@@ -355,15 +379,29 @@ export function createAgent(userId: number, threadId?: string) {
   return graph.compile({ checkpointer });
 }
 
-// ─── Agent Cache ──────────────────────────────────────────────────────────────
+// ─── Agent Cache with TTL ─────────────────────────────────────────────────────
 
-const agentCache = new Map<number, ReturnType<typeof createAgent>>();
+// FIX: cache key includes threadId; entries expire after 30 min.
+export async function getAgent(
+  userId: number,
+  threadId?: string,
+): Promise<Awaited<ReturnType<typeof createAgent>>> {
+  evictExpiredAgents();
 
-export function getAgent(userId: number): ReturnType<typeof createAgent> {
-  if (!agentCache.has(userId)) {
-    agentCache.set(userId, createAgent(userId));
+  const cacheKey = `${userId}:${threadId ?? 'default'}`;
+  const cached = agentCache.get(cacheKey);
+
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.agent;
   }
-  return agentCache.get(userId)!;
+
+  const agent = await createAgent(userId, threadId);
+  agentCache.set(cacheKey, {
+    agent,
+    expiresAt: Date.now() + AGENT_CACHE_TTL_MS,
+  });
+
+  return agent;
 }
 
 export function clearAgentCache(): void {

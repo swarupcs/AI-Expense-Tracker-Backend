@@ -28,6 +28,7 @@
     "@langchain/google-genai": "^2.1.20",
     "@langchain/groq": "^1.1.2",
     "@langchain/langgraph": "^1.1.5",
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
     "@langchain/openai": "^1.2.9",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
