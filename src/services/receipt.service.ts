@@ -33,9 +33,9 @@ export interface ParsedExpenseEntry {
 export async function parseReceiptImage(
   base64Image: string,
   mediaType: string,
-  _userId: number,
+  userId: number,
 ): Promise<ParsedReceipt> {
-  const llm = getLlm();
+  const llm = await getLlm(userId);
 
   const systemPrompt = `You are a receipt parsing assistant. Extract expense information from receipt images.
 Respond ONLY with a valid JSON object (no markdown, no explanation) with these fields:
@@ -106,8 +106,9 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) with these f
 
 export async function parseBulkExpenses(
   text: string,
+  userId: number,
 ): Promise<BulkParseResult> {
-  const llm = getLlm();
+  const llm = await getLlm(userId);
   const today = new Date().toISOString().split('T')[0];
 
   const systemPrompt = `You are an expense parsing assistant. Parse the user's message into individual expense entries.
@@ -187,7 +188,7 @@ export interface CsvParseResult {
 
 export async function parseBankStatementCsv(
   csvContent: string,
-  _userId: number,
+  userId: number,
 ): Promise<CsvParseResult> {
   const lines = csvContent.split('\n').filter((l) => l.trim());
   if (lines.length < 2)
@@ -256,7 +257,7 @@ export async function parseBankStatementCsv(
 
     let categoryMap: Record<number, Category> = {};
     try {
-      const llm = getLlm();
+      const llm = await getLlm(userId);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const resp = await (llm as any).invoke([
         {

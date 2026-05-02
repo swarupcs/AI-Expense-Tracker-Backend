@@ -97,7 +97,7 @@ export async function parseBulkText(
       return;
     }
 
-    const result = await parseBulkExpenses(text);
+    const result = await parseBulkExpenses(text, userId);
 
     let savedCount = 0;
     if (save && result.expenses.length > 0) {

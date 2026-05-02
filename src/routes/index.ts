@@ -12,6 +12,7 @@ import { insightsRouter } from './insights.routes';
 import { importRouter } from './import.routes';
 import { financeRouter } from './finance.routes';
 import { onboardingRouter } from './onboarding.routes';
+import { adminRouter } from './admin.routes';
 
 export const apiRouter: Router = Router();
 
@@ -28,3 +29,4 @@ apiRouter.use('/insights', insightsRouter);
 apiRouter.use('/import', importRouter);
 apiRouter.use('/finance', financeRouter);
 apiRouter.use('/onboarding', onboardingRouter);
+apiRouter.use('/admin', adminRouter);

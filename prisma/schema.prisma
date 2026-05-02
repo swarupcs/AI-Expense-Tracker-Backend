@@ -53,7 +53,11 @@ model UserSettings {
   onboardingCompleted  Boolean  @default(false)
   currency             String   @default("INR")
   alertThreshold       Float?
-  // New fields (migration: add_merchant_tax_networth_toollog)
+  
+  // LLM Overrides
+  llmProvider          String?
+  llmModel             String?
+
   monthlyIncome        Float?
   netWorthAssets       Float?   @default(0)
   netWorthLiabilities  Float?   @default(0)
@@ -62,6 +66,15 @@ model UserSettings {
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_settings")
+}
+
+model GlobalSettings {
+  id          Int      @id @default(1)
+  llmProvider String   @default("gemini")
+  llmModel    String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("global_settings")
 }
 
 model RefreshToken {

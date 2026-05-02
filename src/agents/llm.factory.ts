@@ -7,6 +7,7 @@ import { createGeminiLlm } from './providers/gemini.provider';
 import { createGroqLlm } from './providers/groq.provider';
 import { createCustomLlm } from './providers/custom.provider';
 import { createVertexLlm } from './providers/vertex.provider';
+import { prisma } from '../config/db';
 
 // ─── Tool-bindable LLM type ───────────────────────────────────────────────────
 
@@ -29,42 +30,66 @@ const PROVIDER_REGISTRY: Record<LlmProvider, ProviderFactory> = {
   vertex: createVertexLlm,
 };
 
-// ─── Singleton LLM instance ───────────────────────────────────────────────────
+// ─── Provider info ────────────────────────────────────────────────────────────
 
-let _llmInstance: ToolCapableLlm | null = null;
-let _activeProvider: LlmProvider | null = null;
+export async function getLlmProviderInfo(userId?: number): Promise<{ provider: LlmProvider; model: string }> {
+  let provider = env.LLM_PROVIDER;
+  const providerModelMap: Record<LlmProvider, string> = {
+    openai: env.OPENAI_MODEL,
+    gemini: env.GEMINI_MODEL,
+    groq: env.GROQ_MODEL,
+    custom: env.CUSTOM_MODEL,
+    vertex: env.VERTEX_MODEL,
+  };
+  let model = providerModelMap[provider];
 
-export function getLlm(): ToolCapableLlm {
-  if (_llmInstance) return _llmInstance;
+  try {
+    const globalSettings = await prisma.globalSettings.findFirst();
+    if (globalSettings?.llmProvider) {
+      provider = globalSettings.llmProvider as LlmProvider;
+      model = globalSettings.llmModel || providerModelMap[provider] || '';
+    }
 
-  const provider = env.LLM_PROVIDER;
-  const factory = PROVIDER_REGISTRY[provider];
+    if (userId) {
+      const userSettings = await prisma.userSettings.findUnique({ where: { userId } });
+      if (userSettings?.llmProvider) {
+        provider = userSettings.llmProvider as LlmProvider;
+        model = userSettings.llmModel || providerModelMap[provider] || '';
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load LLM settings from DB, falling back to env:', err);
+  }
+
+  return { provider, model };
+}
+
+// ─── LLM Factory ──────────────────────────────────────────────────────────────
+
+export async function getLlm(userId?: number): Promise<ToolCapableLlm> {
+  const info = await getLlmProviderInfo(userId);
+  const factory = PROVIDER_REGISTRY[info.provider];
 
   if (!factory) {
     throw new Error(
-      `Unknown LLM provider: "${provider}". ` +
+      `Unknown LLM provider: "${info.provider}". ` +
         `Valid options: ${Object.keys(PROVIDER_REGISTRY).join(', ')}`,
     );
   }
 
-  console.log(`🤖  LLM Provider → ${provider.toUpperCase()}`);
-  _llmInstance = factory();
-  _activeProvider = provider;
-  return _llmInstance;
+  // We are creating a fresh instance here to ensure it uses the correct 
+  // provider/model if we decide to pass model overrides to factory later.
+  // Note: Current factories read from `env`, so for true dynamic model switching
+  // the factories would need to be updated to accept `model` as an argument.
+  // For now, we at least switch the *provider* based on the DB settings.
+  return factory();
 }
 
 // ─── Fallback-aware invocation ────────────────────────────────────────────────
 
-/**
- * Returns providers in priority order for automatic failover.
- * Primary is always first; the rest are included only when their
- * required credentials are present in the environment.
- */
-function getFallbackOrder(): LlmProvider[] {
-  const primary = env.LLM_PROVIDER;
+function getFallbackOrder(primary: LlmProvider): LlmProvider[] {
   const all: LlmProvider[] = ['openai', 'gemini', 'groq', 'custom', 'vertex'];
 
-  // Determine which providers are configured
   const isReady: Record<LlmProvider, boolean> = {
     openai: !!env.OPENAI_API_KEY,
     gemini: !!env.GEMINI_API_KEY,
@@ -76,19 +101,13 @@ function getFallbackOrder(): LlmProvider[] {
   return [primary, ...all.filter((p) => p !== primary && isReady[p])];
 }
 
-/**
- * Invoke the LLM with automatic failover to the next available provider.
- * Logs a warning when falling back but never throws if at least one
- * provider succeeds.
- *
- * Usage: replace direct `llm.invoke(messages)` calls with this function
- * wherever resilience matters (e.g. onboarding, receipt parsing).
- */
 export async function invokeLlmWithFallback(
   messages: Parameters<ToolCapableLlm['invoke']>[0],
-  options?: Parameters<ToolCapableLlm['invoke']>[1],
+  options?: Parameters<ToolCapableLlm['invoke']>[1] & { userId?: number },
 ): Promise<Awaited<ReturnType<ToolCapableLlm['invoke']>>> {
-  const order = getFallbackOrder();
+  const userId = options?.userId;
+  const { provider: primaryProvider } = await getLlmProviderInfo(userId);
+  const order = getFallbackOrder(primaryProvider);
   let lastError: Error | null = null;
 
   for (const provider of order) {
@@ -105,47 +124,22 @@ export async function invokeLlmWithFallback(
     if (!factory || !isReady[provider]) continue;
 
     try {
-      // Reuse the cached singleton for the primary; create a fresh instance
-      // for fallback providers so the singleton is never replaced.
-      const llm = provider === env.LLM_PROVIDER ? getLlm() : factory();
-
-      if (provider !== env.LLM_PROVIDER) {
-        console.warn(
-          `⚠️  Primary LLM failed — falling back to ${provider.toUpperCase()}`,
-        );
+      const llm = factory();
+      if (provider !== primaryProvider) {
+        console.warn(`⚠️  Primary LLM failed — falling back to ${provider.toUpperCase()}`);
       }
-
-      return await llm.invoke(messages, options);
+      // Omit userId from options before passing to LangChain
+      const { userId: _, ...invokeOptions } = options || {};
+      return await llm.invoke(messages, invokeOptions);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      console.error(
-        `❌  LLM provider ${provider.toUpperCase()} failed:`,
-        lastError.message,
-      );
+      console.error(`❌  LLM provider ${provider.toUpperCase()} failed:`, lastError.message);
     }
   }
 
   throw lastError ?? new Error('All LLM providers failed.');
 }
 
-// ─── Provider info ────────────────────────────────────────────────────────────
-
-export function getLlmProviderInfo(): { provider: LlmProvider; model: string } {
-  const providerModelMap: Record<LlmProvider, string> = {
-    openai: env.OPENAI_MODEL,
-    gemini: env.GEMINI_MODEL,
-    groq: env.GROQ_MODEL,
-    custom: env.CUSTOM_MODEL,
-    vertex: env.VERTEX_MODEL,
-  };
-
-  return {
-    provider: env.LLM_PROVIDER,
-    model: providerModelMap[env.LLM_PROVIDER],
-  };
-}
-
 export function resetLlmInstance(): void {
-  _llmInstance = null;
-  _activeProvider = null;
+  // No longer a singleton
 }

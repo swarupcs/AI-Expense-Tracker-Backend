@@ -80,8 +80,8 @@ app.use('/api', apiLimiter);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 
-app.get('/health', (_req, res) => {
-  const llm = getLlmProviderInfo();
+app.get('/health', async (_req, res) => {
+  const llm = await getLlmProviderInfo();
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -105,7 +105,7 @@ app.use(errorHandler);
 async function start(): Promise<void> {
   await connectDB();
 
-  const llm = getLlmProviderInfo();
+  const llm = await getLlmProviderInfo();
 
   const server = app.listen(env.PORT, () => {
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

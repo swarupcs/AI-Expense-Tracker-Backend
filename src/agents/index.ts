@@ -240,7 +240,7 @@ type GenericInvoke = (input: unknown, config?: unknown) => Promise<unknown>;
 
 export async function createAgent(userId: number, threadId?: string) {
   const tools = initTools(userId);
-  const llm: ToolCapableLlm = getLlm();
+  const llm: ToolCapableLlm = await getLlm(userId);
   // FIX: use PostgresSaver so history survives server restarts
   const checkpointer = await getCheckpointer();
 
